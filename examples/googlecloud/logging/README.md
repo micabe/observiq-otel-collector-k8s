@@ -7,6 +7,16 @@ not required.
 
 Update the configuration to reflect your environment.
 
+**Authentication**
+
+If running **outside of GCP**, deploy Google credentials:
+```bash
+kubectl create secret generic gcp-credentials \
+    --from-file=credentials.json
+```
+
+If running within GCP with the correct instance scopes enabled, comment the authentication section in `environments/googlecloud/agent_gateway.yaml`.
+
 **Set Cluster Name**
 
 Update the cluster name environment variable. This is a "friendly" name that
