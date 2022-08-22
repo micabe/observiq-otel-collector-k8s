@@ -1,0 +1,420 @@
+# yamllint disable rule:line-length
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observiq-otel-collector
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: observiq-otel-collector
+  name: observiq-otel-collector
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - events
+      - namespaces
+      - namespaces/status
+      - nodes
+      - nodes/spec
+      - nodes/stats
+      - nodes/proxy
+      - pods
+      - pods/status
+      - replicationcontrollers
+      - replicationcontrollers/status
+      - resourcequotas
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - daemonsets
+      - deployments
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+      - cronjobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: observiq-otel-collector
+  name: observiq-otel-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: observiq-otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: observiq-otel-collector
+    namespace: default
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observiq-otel-collector
+  labels:
+    app: observiq-otel-collector
+data:
+  collector.yaml: |
+    receivers:
+      journald/kubelet:
+        directory: /var/log/journal
+        units:
+          - kubelet
+        operators:
+          # Semantic conventions says node name should be a resource.
+          - type: move
+            from: body._HOSTNAME
+            to: resource["k8s.node.name"]
+
+          # Replace journald body with application's log message
+          - type: move
+            from: body.MESSAGE
+            to: body
+
+          # Parse kubelet klog formatted message
+          - type: regex_parser
+            regex: '(?P<severity>\w)(?P<timestamp>\d{4} \d{2}:\d{2}:\d{2}.\d+)\s+(?P<pid>\d+)\s+(?P<src>[^:]*):(?P<src_line>[^\]]*)\] (?P<message>.*)'
+            severity:
+              parse_from: attributes.severity
+              mapping:
+                debug: d
+                info: i
+                warning: w
+                error: e
+                critical: c
+            timestamp:
+              parse_from: attributes.timestamp
+              layout: '%m%d %H:%M:%S.%s'
+
+          # Replace raw klog body with the message field extracted
+          # by regex parser. The severity and timestmap have been
+          # promoted to the entry and are no longer useful in the body.
+          - type: move
+            from: attributes.message
+            to: body
+
+          - type: add
+            field: attributes.log_type
+            value: kubelet
+
+      filelog:
+        include:
+          - /var/log/containers/*.log
+        start_at: end
+        exclude:
+          # Avoid parsing collector logs
+          - /var/log/containers/observiq-*-collector-*
+        poll_interval: 500ms
+        operators:
+          # Support docker and containerd runtimes, which have different
+          # logging formats.
+          - type: router
+            routes:
+              - expr: 'body matches "^[^\\s]+ \\w+ .*"'
+                output: containerd_parser
+            default: docker_parser
+
+          # The raw message looks like this:
+          # {"log":"I0618 14:30:29.641678       1 logs.go:59] http: TLS handshake error from 192.168.49.2:56222: EOF\n","stream":"stderr","time":"2022-06-18T14:30:29.641732743Z"}
+          - type: json_parser
+            id: docker_parser
+            timestamp:
+              parse_from: attributes.time
+              layout: '%Y-%m-%dT%H:%M:%S.%sZ'
+            output: log-to-body
+
+          # The raw message looks like this:
+          # 2022-06-18T16:52:59.639114537Z stdout F {"message":"registered Stackdriver tracing","severity":"info","timestamp":"2022-06-18T16:52:59.639034532Z"}
+          - id: containerd_parser
+            type: regex_parser
+            regex: '^(?P<time>[^\s]+) (?P<stream>\w+) (?P<partial>\w)?(?P<log>.*)'
+          - type: recombine
+            source_identifier: attributes["log.file.name"]
+            combine_field: attributes.log
+            is_last_entry: "attributes.partial == 'F'"
+          - type: remove
+            field: attributes.partial
+          - id: time_parser_router
+            type: router
+            routes:
+              # Containerd can have a couple timestamp formats depending if the node has local time set
+              - output: local_containerd_timestamp_parser
+                expr: 'attributes.time != nil and attributes.time matches "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3,9}[\\+-]\\d{2}:\\d{2}"'
+              - output: utc_containerd_timestamp_parser
+                expr: 'attributes.time != nil and attributes.time matches "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3,9}Z"'
+          - type: time_parser
+            id: local_containerd_timestamp_parser
+            parse_from: attributes.time
+            layout: '%Y-%m-%dT%H:%M:%S.%s%j'
+            output: log-to-body
+          - type: time_parser
+            id: utc_containerd_timestamp_parser
+            parse_from: attributes.time
+            layout: '%Y-%m-%dT%H:%M:%S.%sZ'
+            output: log-to-body
+
+          # The raw body does not contain anything useful considering timestamp has been promotoed to
+          # the log entries timestamp, therefore we move attributes.log (the actual container log message)
+          # to body.
+          - type: move
+            id: log-to-body
+            from: attributes.log
+            to: body
+
+          # Detect pod, namespace, and container names from the file name.
+          - type: regex_parser
+            regex: '^(?P<pod>[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)_(?P<namespace>[^_]+)_(?P<container>.+)-'
+            parse_from: attributes["log.file.name"]
+            cache:
+              size: 500
+
+          # Semantic conventions for k8s
+          # https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/resource/semantic_conventions/k8s.md#kubernetes
+          - type: move
+            from: attributes.pod
+            to: resource["k8s.pod.name"]
+          - type: move
+            from: attributes.namespace
+            to: resource["k8s.namespace.name"]
+          - type: move
+            from: attributes.container
+            to: resource["k8s.container.name"]
+
+    processors:
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        pod_association:
+        - from: resource_attribute
+          name: k8s.pod.uid
+        - from: resource_attribute
+          name: k8s.pod.name
+        filter:
+            node_from_env_var: ${KUBE_NODE_NAME}
+
+      resource:
+        attributes:
+        - key: k8s.cluster.name
+          value: "${K8S_CLUSTER}"
+          action: upsert
+
+      # Google requires k8s.cluster.name, cloud.region, cloud.availability_zone and
+      # cloud.platform in order to map to container, pod, node, and cluster resource types.
+      resource/mapping:
+        attributes:
+        - key: cloud.region
+          value: us-east1
+          action: insert
+        - key: cloud.availability_zone
+          value: us-east1-b
+          action: insert
+        - key: cloud.platform
+          value: gcp_kubernetes_engine
+          action: insert
+
+      # Logs: Preserve resource labels that are discarded after mapping to
+      # google monitored resource type. The following are preserved by
+      # google exporter log pipelines:
+      #     -> k8s.cluster.name: STRING(google-poc)
+      #     -> k8s.container.name: STRING(otc-container)
+      #     -> k8s.namespace.name: STRING(default)
+      #     -> k8s.pod.name: STRING(observiq-node-collector-46r2h)
+      # The following should be moved to labels
+      #     -> k8s.deployment.name: STRING(observiq-node)
+      #     -> k8s.node.name: STRING(minikube)
+      #     -> k8s.pod.start_time: STRING(2022-07-18 19:02:31 +0000 UTC)
+      #     -> k8s.pod.uid: STRING(82aa9f33-f049-4d6f-b329-a8bf3ef4d819)
+      #     -> container.image.name: STRING(bmedora/observiq-otel-collector-amd64)
+      #     -> container.image.tag: STRING(k8s-dev.0)
+      logstransform/k8spodlabels:
+        operators:
+          - type: move
+            if: resource["k8s.deployment.name"] != nil
+            from: resource["k8s.deployment.name"]
+            to: attributes["k8s.deployment.name"]
+          - type: move
+            if: resource["k8s.node.name"] != nil
+            from: resource["k8s.node.name"]
+            to: attributes["k8s.node.name"]
+          - type: move
+            if: resource["k8s.pod.start_time"] != nil
+            from: resource["k8s.pod.start_time"]
+            to: attributes["k8s.pod.start_time"]
+          - type: move
+            if: resource["k8s.pod.uid"] != nil
+            from: resource["k8s.pod.uid"]
+            to: attributes["k8s.pod.uid"]
+          - type: move
+            if: resource["container.image.name"] != nil
+            from: resource["container.image.name"]
+            to: attributes["container.image.name"]
+          - type: move
+            if: resource["container.image.tag"] != nil
+            from: resource["container.image.tag"]
+            to: attributes["container.image.tag"]
+
+      batch:
+        send_batch_max_size: 1000
+        send_batch_size: 1000
+        timeout: 2s
+
+    exporters:
+      googlecloud:
+      logging:
+
+    extensions:
+      file_storage:
+        directory: /var/lib/observiq/otelcol/node
+
+    service:
+      extensions:
+        - file_storage
+      pipelines:
+        logs:
+          receivers:
+            - journald/kubelet
+            - filelog
+          processors:
+            - k8sattributes
+            - resource
+            - resource/mapping
+            - logstransform/k8spodlabels
+            - batch
+          exporters:
+            - googlecloud
+            - logging
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: observiq-otel-collector
+  labels:
+    app: observiq-otel-collector
+spec:
+  selector:
+    matchLabels:
+      app: observiq-otel-collector
+  template:
+    metadata:
+      labels:
+        app: observiq-otel-collector
+    spec:
+      containers:
+        - args:
+            - --config=/conf/collector.yaml
+          env:
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /otel/credentials.json
+            - name: K8S_CLUSTER
+              value: eks
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+          image: observiq/observiq-otel-collector:1.4.0
+          imagePullPolicy: IfNotPresent
+          name: otc-container
+          resources:
+            requests:
+              cpu: 250m
+              memory: 250Mi
+          volumeMounts:
+            - mountPath: /conf
+              name: otc-internal
+            - mountPath: /var/log
+              name: varlog
+            - mountPath: /var/lib/docker/containers
+              name: dockerlogs
+            - mountPath: /var/lib/observiq/otelcol/node
+              name: storage
+            - mountPath: /otel/credentials.json
+              name: gcp-credentials
+              subPath: credentials.json
+      dnsPolicy: ClusterFirstWithHostNet
+      # Required for k8sattributes processor
+      hostNetwork: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        # Must be able to mount host volume and read logs
+        # from filesystem and journald.
+        runAsUser: 0
+      serviceAccount: observiq-otel-collector
+      serviceAccountName: observiq-otel-collector
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - configMap:
+            defaultMode: 420
+            items:
+              - key: collector.yaml
+                path: collector.yaml
+            name: observiq-otel-collector
+          name: otc-internal
+        - hostPath:
+            path: /var/log
+            type: ""
+          name: varlog
+        - hostPath:
+            path: /var/lib/docker/containers
+            type: ""
+          name: dockerlogs
+        - hostPath:
+            path: /var/lib/observiq/otelcol/node
+            type: ""
+          name: storage
+        - name: gcp-credentials
+          secret:
+            defaultMode: 420
+            secretName: gcp-credentials
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
