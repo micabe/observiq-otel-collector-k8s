@@ -69,7 +69,7 @@ The service account should have permission to write metrics, logs, and traces.
 kubectl create secret generic gcp-credentials \
     --from-file=credentials.json
 ```
-- If running within GCP with the correct instance scoeps enabled, comment the authentication
+- If running within GCP with the correct instance scopes enabled, comment the authentication
   section in `environments/googlecloud/agent_gateway.yaml`.
 
 2. Update the override file in `environments/googlecloud/agent.yaml`
