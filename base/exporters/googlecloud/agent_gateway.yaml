@@ -146,7 +146,7 @@ spec:
             - logging
             - googlecloud
 
-  image: observiq/observiq-otel-collector:1.4.0
+  image: observiq/observiq-otel-collector:1.8.0
   resources:
     requests:
       memory: 100Mi

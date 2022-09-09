@@ -358,7 +358,7 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.name
-          image: observiq/observiq-otel-collector:1.4.0
+          image: observiq/observiq-otel-collector:1.8.0
           imagePullPolicy: IfNotPresent
           name: otc-container
           resources:
