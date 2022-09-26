@@ -145,7 +145,6 @@ data:
         exclude:
           # Avoid parsing collector logs
           - /var/log/containers/observiq-*-collector-*
-        poll_interval: 500ms
         operators:
           # Support docker and containerd runtimes, which have different
           # logging formats.
