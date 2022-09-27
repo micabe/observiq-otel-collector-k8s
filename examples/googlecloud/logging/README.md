@@ -15,8 +15,6 @@ kubectl create secret generic gcp-credentials \
     --from-file=credentials.json
 ```
 
-If running within GCP with the correct instance scopes enabled, comment the authentication section in `environments/googlecloud/agent_gateway.yaml`.
-
 **Set Cluster Name**
 
 Update the cluster name environment variable. This is a "friendly" name that

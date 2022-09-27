@@ -1,3 +1,5 @@
+# yamllint disable rule:line-length
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -25,7 +27,7 @@ data:
           action: upsert
         # Google requires cloud.region, cloud.availability_zone and cloud.platform in order
         # to map to container, pod, node, and cluster resource types. These values are hardcoded
-        # here because this config is intended for an on-premise solution. 
+        # here because this config is intended for an on-premise solution.
         - key: cloud.region
           value: us-east1
           action: insert
@@ -138,8 +140,8 @@ metadata:
     app: httpd
 spec:
   ports:
-  - port: 80
-    name: http
+    - port: 80
+      name: http
   selector:
     app: httpd
 ---
@@ -176,6 +178,8 @@ spec:
               subPath: httpd.conf
               name: config
 
+        # BEGIN Collector Side Car. This configuration relies on the volumes
+        # "gcp-credentials" and "config" defined at the bottom of this file.
         - name: otc-container
           image: observiq/observiq-otel-collector:1.9.0
           imagePullPolicy: IfNotPresent
@@ -214,6 +218,7 @@ spec:
             - mountPath: /otel/credentials.json
               name: gcp-credentials
               subPath: credentials.json
+      # End Collector Side Car
 
       volumes:
         - name: config

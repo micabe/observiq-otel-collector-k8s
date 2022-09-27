@@ -14,8 +14,6 @@ kubectl create secret generic gcp-credentials \
     --from-file=credentials.json
 ```
 
-If running within GCP with the correct instance scopes enabled, comment the authentication section in `environments/googlecloud/agent_gateway.yaml`.
-
 **Set Cluster Name**
 
 Update the cluster name environment variables. Because cluster name cannot be detected, it must be set
@@ -55,3 +53,24 @@ resource/mapping:
       action: insert
 ```
 
+**Deploy**
+
+Deploy Apache HTTP with an observIQ collector as a side car. This configuration is an example
+
+```bash
+kubectl apply -f metrics.yaml
+```
+
+Deploy the logging daemonset
+
+```bash
+kubectl apply -f logs.yaml
+```
+
+You can view your logs with the following query
+```
+resource.labels.cluster_name="apache"
+resource.type="k8s_container"
+```
+
+Metrics will show up under "Kubernetes Pod" in the metrics explorer.
