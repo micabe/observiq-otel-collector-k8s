@@ -53,6 +53,20 @@ resource/mapping:
       action: insert
 ```
 
+**Set the Apache Pod Name**
+
+Modify `logs.yaml` and ensure the include file path is correct. By default, it is set to:
+
+```yaml
+receivers:
+  filelog/apache:
+    include:
+      - /var/log/containers/httpd*.log
+```
+
+This means all container log files that start with `httpd` will be read. If you Apache pod's have a different name, be
+sure to update it here.
+
 **Deploy**
 
 Deploy Apache HTTP with an observIQ collector as a side car. This configuration is an example
