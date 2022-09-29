@@ -8,7 +8,7 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   name: observiq-cluster
-  namespace: default
+  namespace: data-preparation
 spec:
   env:
     - name: K8S_CLUSTER
@@ -18,7 +18,7 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   name: observiq-node
-  namespace: default
+  namespace: data-preparation
 spec:
   env:
     - name: K8S_CLUSTER
@@ -33,7 +33,7 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   name: observiq-redis
-  namespace: default
+  namespace: data-preparation
 spec:
   env:
     - name: K8S_CLUSTER

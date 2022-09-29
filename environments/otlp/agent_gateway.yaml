@@ -3,7 +3,7 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   name: observiq-gateway
-  namespace: default
+  namespace: data-preparation
 spec:
   # setting 'replicas' w/ 'maxReplicas' will configure an autoscaler with
   # min 2 and max 5 replicas.

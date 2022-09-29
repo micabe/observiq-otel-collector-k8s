@@ -56,29 +56,15 @@ If you have applications emitting traces using an Open Telemetry SDK, they can b
 
 ### Deploy Collectors
 
-**Google Cloud**
+**Installation**
 
-Deploy cert manager, the operator, and the GCP credential secret. The credential file should be in the root of
-this repo, named `credentials.json`.
 
-The service account should have permission to write metrics, logs, and traces.
-
-1. Authentication: 
-- If running **outside of GCP**, deploy Google credentials:
 ```bash
-kubectl create secret generic gcp-credentials \
-    --from-file=credentials.json
-```
-- If running within GCP with the correct instance scopes enabled, comment the authentication
-  section in `environments/googlecloud/agent_gateway.yaml`.
+kubectl apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/latest/download/opentelemetry-operator.yaml
 
-2. Update the override file in `environments/googlecloud/agent.yaml`
-- Set `K8S_CLUSTER` environment variable to the name of your cluster.
-- If running within GCP, the resource detection processor will detect the real GKE cluster name.
+kustomize build environments/ci | kubectl apply -f -
 
-3. Using Kustomize, deploy the Google Cloud configuration:
-```bash
-kustomize build environments/googlecloud | kubectl apply -f -
+kubectl apply -f app/redis/redis.yaml
 ```
 
 **New Relic**

@@ -4,7 +4,7 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   name: observiq-node
-  namespace: default
+  namespace: data-preparation
 spec:
   mode: daemonset
   hostNetwork: true

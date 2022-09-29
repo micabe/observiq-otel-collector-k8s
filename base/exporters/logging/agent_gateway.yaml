@@ -3,14 +3,19 @@ apiVersion: v1
 kind: Service
 metadata:
   name: observiq-gateway
-  namespace: default
+  namespace: data-preparation
   labels:
     app: observiq-gateway
 spec:
   ports:
-    - port: 4317
+    - name: otlp
+      port: 4317
       protocol: TCP
       targetPort: 4317
+    - name: metrics
+      port: 8889
+      protocol: TCP
+      targetPort: 8889
   selector:
     app: observiq-gateway
   sessionAffinity: None
@@ -20,9 +25,13 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   name: observiq-gateway
-  namespace: default
+  namespace: data-preparation
   labels:
     app: observiq-gateway
+  annotations:
+    prometheus.io/path: "/metrics"
+    prometheus.io/port: "8889"
+    prometheus.io/scrape: "true"
 spec:
   mode: deployment
   config: |
@@ -33,27 +42,54 @@ spec:
             endpoint: 0.0.0.0:4317
 
     exporters:
-      logging:
-        loglevel: debug
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        send_timestamps: true
+        metric_expiration: 180m
+        resource_to_telemetry_conversion:
+          enabled: true
+      elasticsearch/trace:
+        tls:
+          insecure_skip_verify: true
+        endpoints: [https://argonos-elasticsearch:9200]
+        traces_index: argonos_traces
+        api_key: UWxRNWlZTUJSOV9uM0NWNGFoaFg6VUQ1U1JtTklSZ0tRWWZsUkdGb2xYZw==
+        discover:
+          on_start: true
 
-    extensions:
-      health_check:
+      elasticsearch/log:
+        tls:
+          insecure_skip_verify: true
+        endpoints: [https://argonos-elasticsearch:9200]
+        logs_index: argonos_logs
+        api_key: UWxRNWlZTUJSOV9uM0NWNGFoaFg6VUQ1U1JtTklSZ0tRWWZsUkdGb2xYZw==
+        discover:
+          on_start: true
+
+    processors:
+      batch:
 
     service:
-      extensions:
-        - health_check
       pipelines:
-        metrics:
-          receivers:
-            - otlp
-          exporters:
-            - logging
-
         logs:
           receivers:
             - otlp
           exporters:
-            - logging
+            - elasticsearch/log
+          processors:
+            - batch
+        traces:
+          receivers:
+            - otlp
+          exporters:
+            - elasticsearch/trace
+          processors:
+            - batch
+        metrics:
+          receivers:
+            - otlp
+          exporters:
+            - prometheus
 
   image: observiq/observiq-otel-collector:1.9.0
   replicas: 1

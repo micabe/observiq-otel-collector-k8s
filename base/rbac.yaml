@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: observiq-otel-collector
-  namespace: default
+  namespace: data-preparation
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -84,4 +84,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: observiq-otel-collector
-    namespace: default
+    namespace: data-preparation

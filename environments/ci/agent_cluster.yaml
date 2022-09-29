@@ -2,7 +2,7 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   name: observiq-redis
-  namespace: default
+  namespace: data-preparation
 spec:
   resources:
     requests:

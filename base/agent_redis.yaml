@@ -3,13 +3,13 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   name: observiq-redis
-  namespace: default
+  namespace: data-preparation
 spec:
   mode: sidecar
   config: |
     receivers:
       redis:
-        endpoint: 127.0.0.1:6379
+        endpoint: https://argonos-redis:6379
         collection_interval: 60s
 
     processors:
